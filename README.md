@@ -20,6 +20,10 @@ All live under `/api/v1` and, like real Canvas, require a token. Auth is accepte
 
 Two unauthenticated helpers: `GET /` (a self-describing disclaimer + endpoint list) and `GET /healthz`.
 
+### Live admin panel
+
+`GET /admin?token=<ADMIN_TOKEN>` serves a small control panel to mutate the fake data **live** — add/remove students, toggle each student's submitted/missing status, and edit the assignment name/due date. Changes take effect immediately in the read endpoints above (and in anything reading them, e.g. an agent), which makes for a convincing demo: flip a student to "missing" and watch it appear downstream. The admin routes (`/admin/state`, `/admin/students`, `/admin/submission`, `/admin/assignment`, `/admin/reset`) require `?token=<ADMIN_TOKEN>` (env `CANVAS_MOCK_ADMIN_TOKEN`, default `changeme` — change it). State persists to `CANVAS_MOCK_STATE_FILE` (default `/data/state.json`) when writable, so edits survive a restart.
+
 ### Fake dataset
 
 Course id `101`, one assignment ("Essay 1"), three students. **Bob submitted; Alice and Carol did not** — so a missing-submissions query returns Alice + Carol and excludes Bob.
@@ -58,6 +62,8 @@ curl "http://localhost:8913/api/v1/courses/101/students/submissions?student_ids[
 | `PORT` | `8913` | Listen port |
 | `HOST` | `0.0.0.0` | Bind address |
 | `CANVAS_MOCK_COURSE_ID` | `101` | The course id the mock answers for |
+| `CANVAS_MOCK_ADMIN_TOKEN` | `changeme` | Token gating the `/admin` panel + mutation routes |
+| `CANVAS_MOCK_STATE_FILE` | `/data/state.json` | Where live edits persist (mount a volume) |
 
 ## Public deployment
 

@@ -10,4 +10,13 @@ services:
     environment:
       PORT: "8913"
       CANVAS_MOCK_COURSE_ID: "101"
+      # Protects the /admin control panel + mutation endpoints. CHANGE THIS.
+      CANVAS_MOCK_ADMIN_TOKEN: "changeme"
+      CANVAS_MOCK_STATE_FILE: "/data/state.json"
+    volumes:
+      # Persists live edits across restarts.
+      - canvas-mock-data:/data
     restart: unless-stopped
+
+volumes:
+  canvas-mock-data:
