@@ -1,0 +1,13 @@
+services:
+  canvas-mock:
+    build: .
+    image: canvas-mock:latest
+    container_name: canvas-mock
+    # Publish only on loopback; put a reverse proxy (nginx/caddy) in front for
+    # public exposure. Change to "8913:8913" to listen on all interfaces.
+    ports:
+      - "127.0.0.1:8913:8913"
+    environment:
+      PORT: "8913"
+      CANVAS_MOCK_COURSE_ID: "101"
+    restart: unless-stopped
