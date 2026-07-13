@@ -77,6 +77,14 @@ def _defaults():
         ],
         # list of [student_id, assignment_id] pairs that ARE submitted
         "submitted": [[5002, 9001]],
+        # DEMO-ONLY attendance. Real Canvas has no attendance REST API (Roll Call
+        # is a separate Instructure service), so this endpoint is a mock convenience.
+        "session_date": "2026-07-13",
+        "attendance": {  # keyed by str(student_id): {"status": present|absent|late, "absences": int}
+            "5001": {"status": "present", "absences": 0},
+            "5002": {"status": "present", "absences": 1},
+            "5003": {"status": "absent", "absences": 3},
+        },
     }
 
 
@@ -84,9 +92,12 @@ def _load_state():
     try:
         with open(STATE_FILE) as f:
             s = json.load(f)
-            # normalize submitted pairs to lists
-            s["submitted"] = [list(p) for p in s.get("submitted", [])]
-            return s
+        s["submitted"] = [list(p) for p in s.get("submitted", [])]
+        # Backfill any keys added in newer versions (e.g. attendance) so an
+        # older persisted state file still gets sensible defaults.
+        for k, v in _defaults().items():
+            s.setdefault(k, v)
+        return s
     except Exception:
         return _defaults()
 
@@ -225,6 +236,16 @@ class Handler(BaseHTTPRequestHandler):
                 } for s in STATE["students"]]); return
             if resource == "assignments":
                 self._send(200, STATE["assignments"]); return
+            if resource == "attendance":
+                att = STATE.get("attendance", {})
+                self._send(200, {
+                    "session_date": STATE.get("session_date"),
+                    "records": [{
+                        "user_id": s["id"], "name": s["name"],
+                        "status": att.get(str(s["id"]), {}).get("status", "present"),
+                        "absences": att.get(str(s["id"]), {}).get("absences", 0),
+                    } for s in STATE["students"]],
+                }); return
             if resource == "students" and len(parts) >= 6 and parts[5] == "submissions":
                 wf = qs.get("workflow_state", [None])[0]
                 grouped = qs.get("grouped", ["false"])[0].lower() in ("true", "1")
@@ -260,10 +281,19 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": "name required"}); return
                 sid = _next_id(STATE["students"], 5000)
                 STATE["students"].append({"id": sid, "name": name, "state": "active"})
+                STATE.setdefault("attendance", {})[str(sid)] = {"status": "present", "absences": 0}
             elif route == "admin/students/delete":
                 sid = int(body.get("id"))
                 STATE["students"] = [s for s in STATE["students"] if s["id"] != sid]
                 STATE["submitted"] = [p for p in STATE["submitted"] if p[0] != sid]
+                STATE.get("attendance", {}).pop(str(sid), None)
+            elif route == "admin/attendance":
+                sid = str(int(body["student_id"]))
+                rec = STATE.setdefault("attendance", {}).setdefault(sid, {"status": "present", "absences": 0})
+                if body.get("status") in ("present", "absent", "late"):
+                    rec["status"] = body["status"]
+                if "absences" in body:
+                    rec["absences"] = max(0, int(body["absences"]))
             elif route == "admin/submission":
                 sid, aid = int(body["student_id"]), int(body["assignment_id"])
                 submitted = bool(body.get("submitted"))
@@ -331,10 +361,26 @@ function render(){
      "<td class='"+(sub?'sub':'miss')+"'>"+(sub?"submitted":"MISSING")+"</td>"+
      "<td><button class='"+(sub?'off':'on')+"' onclick='toggle("+s.id+","+a.id+","+(!sub)+")'>mark "+(sub?"missing":"submitted")+"</button> "+
      "<button class='danger' onclick='del("+s.id+")'>remove</button></td></tr>"; }
- h+="</table><div class='row'><input id='nn' placeholder='New student name' style='width:220px'><button onclick='addS()'>Add student</button>"+
+ h+="</table>";
+ // Attendance (demo-only; real Canvas has no attendance API)
+ const att=S.attendance||{};
+ h+="<h2>Attendance &mdash; session "+(S.session_date||"")+"</h2><table><tr><th>Student</th><th>Today</th><th>Total absences</th></tr>";
+ for(const s of S.students){ const r=att[String(s.id)]||{status:'present',absences:0};
+  const cls=r.status==='present'?'sub':(r.status==='late'?'':'miss');
+  h+="<tr><td>"+s.name+"</td>"+
+     "<td><button class='"+(r.status==='present'?'on':'off')+"' onclick=\"setAtt("+s.id+",'present')\">present</button> "+
+     "<button class='"+(r.status==='absent'?'off':'')+"' onclick=\"setAtt("+s.id+",'absent')\">absent</button> "+
+     "<button class='"+(r.status==='late'?'on':'')+"' onclick=\"setAtt("+s.id+",'late')\">late</button> "+
+     "<span class='"+cls+"'>&nbsp;"+r.status+"</span></td>"+
+     "<td><button onclick='setAbs("+s.id+","+Math.max(0,r.absences-1)+")'>&minus;</button> <b>"+r.absences+"</b> "+
+     "<button onclick='setAbs("+s.id+","+(r.absences+1)+")'>+</button></td></tr>"; }
+ h+="</table>";
+ h+="<div class='row'><input id='nn' placeholder='New student name' style='width:220px'><button onclick='addS()'>Add student</button>"+
     "<button onclick='reset()' style='margin-left:auto'>Reset demo</button></div>";
  document.getElementById("app").innerHTML=h;
 }
+async function setAtt(id,status){ S=await api("/admin/attendance",{student_id:id,status}); render(); }
+async function setAbs(id,absences){ S=await api("/admin/attendance",{student_id:id,absences}); render(); }
 async function toggle(sid,aid,v){ S=await api("/admin/submission",{student_id:sid,assignment_id:aid,submitted:v}); render(); }
 async function del(id){ S=await api("/admin/students/delete",{id}); render(); }
 async function addS(){ const n=document.getElementById("nn").value.trim(); if(!n)return; S=await api("/admin/students",{name:n}); render(); }
